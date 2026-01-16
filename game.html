@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>YYSMART | FlashGame</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f8;
+            overflow: hidden;
+        }
+
+        #unity-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+
+        #loading-cover {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #f5f5f8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 加载栏容器 */
+        #unity-loading-bar {
+            width: 60%;
+            max-width: 400px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: rgba(255,255,255,0.95);
+            padding: 30px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.1);
+        }
+
+        #unity-logo {
+            width: 90px;
+            height: 90px;
+            background: url('TemplateData/unity-logo-light.png') center/contain no-repeat;
+            margin-bottom: 20px;
+            transform: scaleX(-1);
+        }
+
+        /* ========== PC端横版进度条（默认） ========== */
+        #unity-progress-bar-empty {
+            width: 100%;
+            height: 14px;
+            border: 1px solid #eee;
+            border-radius: 7px;
+            overflow: hidden;
+            background-color: #f8f8f8;
+            position: relative;
+        }
+
+        #unity-progress-bar-full {
+            height: 100%;
+            background-color: #ff7f24;
+            width: 0%;
+            transition: width 0.2s ease;
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+
+        /* ========== 移动端竖版进度条 ========== */
+        /* 1. 父容器：强制logo居左、进度条居右，整体水平+垂直居中 */
+        #unity-loading-bar.mobile-progress {
+            display: flex;
+            flex-direction: row; /* 横向排列（左→右） */
+            align-items: center; /* 垂直居中对齐 */
+            justify-content: space-between; /* logo左、进度条右（或用gap控制间距） */
+            gap: 10px; /* logo和进度条的左右间距 */
+            /* 确保父容器占足够宽度，让元素能左右排列 */
+            width: 80%; /* 适配页面宽度，可根据需求调整 */
+            height: 250px;
+            max-width: 100px;
+            /* 页面中整体居中 */
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        /* 2. Logo：取消所有旋转，恢复正常横向显示 */
+        #unity-logo.mobile-progress {
+            width: 60px; /* 适配横向布局的尺寸（可调整） */
+            height: 60px;
+            background: url('TemplateData/unity-logo-light.png') center/contain no-repeat;
+            transform: rotate(0); /* 彻底取消旋转，正常显示 */
+            margin: 0; /* 清空margin */
+        }
+
+        /* 3. 进度条：改为横向进度条（宽长、高短） */
+        #unity-loading-bar.mobile-progress #unity-progress-bar-empty {
+            /* 横向进度条的尺寸：宽长、高短 */
+            width: 20px; /* 进度条长度 */
+            height: 200px; /* 进度条高度 */
+            border-radius: 6px; /* 圆角适配高度 */
+            background-color: #f0f0f0; /* 进度条底色 */
+            transform: rotate(180deg); /* 取消任何旋转 */
+            position: relative;
+        }
+
+        #unity-loading-bar.mobile-progress #unity-progress-bar-full {
+            /* 横向进度条的填充方式：从左到右 */
+            width: 100%; /* 占满进度条高度 */
+            height: 0%; /* 初始高度0，加载时从0%增加到100% */
+            background-color: #ff7f24; /* 进度条颜色 */
+            border-radius: 6px; /* 圆角和容器一致 */
+            position: absolute;
+            left: 0;
+            bottom: 0; /* 从左侧开始填充 */
+            transition: height 0.2s ease; /* 宽度变化动画（替代之前的height） */
+        }
+
+        #unity-canvas {
+            width: 100%;
+            height: 100%;
+            background-color: #fff;
+            display: block;
+        }
+
+        #unity-warning {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: red;
+            color: white;
+            padding: 10px;
+            display: none;
+            z-index: 999;
+        }
+    </style>
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+</head>
+<body>
+    <div id="unity-container" class="unity-desktop">
+        <div id="loading-cover">
+            <div id="unity-loading-bar">
+                <div id="unity-logo"></div> <!-- Logo统一旋转180° -->
+                <div id="unity-progress-bar-empty">
+                    <div id="unity-progress-bar-full"></div>
+                </div>
+            </div>
+        </div>
+
+        <canvas id="unity-canvas" width="auto" height="auto"></canvas>
+        <div id="unity-warning"></div>
+    </div>
+
+    <script src="Build/FlashGame.loader.js"></script>
+    <script>
+        let unityInstance = null;
+        // ================ 关键修改：替换原有简单检测，改为多维度鸿蒙+移动端检测 ================
+        // 多维度检测鸿蒙系统（含原生/兼容层、微信浏览器）
+        function detectHarmonyOS() {
+            let userAgent = '';
+            try {
+                userAgent = navigator.userAgent.toLowerCase();
+            } catch (e) {
+                console.warn('检测鸿蒙系统失败：', e);
+                return false;
+            }
+            // 检测原生鸿蒙标识
+            const hasHarmonyUA = /harmonyos|harmony/.test(userAgent);
+            // 检测鸿蒙专属API
+            const hasHarmonyAPI = typeof window.harmonyOS !== 'undefined';
+            // 检测微信浏览器+安卓环境（鸿蒙兼容层特征）
+            const isWeChat = /micromessenger/.test(userAgent);
+            const isAndroid = /android/.test(userAgent);
+            const isPureAndroid = /samsung|xiaomi|redmi|vivo|oppo|meizu/.test(userAgent) && !hasHarmonyUA;
+
+            // 鸿蒙系统判断：原生鸿蒙 || 微信+安卓+非纯安卓（鸿蒙兼容层）
+            return hasHarmonyUA || hasHarmonyAPI || (isWeChat && isAndroid && !isPureAndroid);
+        }
+
+        // 最终移动端检测：原有移动端 + 鸿蒙系统（无论原生/兼容层）
+        const isMobileBrowser = (
+            /iPhone|iPad|iPod|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+            || detectHarmonyOS() // 补充鸿蒙系统检测
+        );
+        // ================ 关键修改结束 ================
+        let mobileStatusStr = isMobileBrowser ? "true" : "false";
+        let sendRetryCount = 0;
+        const maxRetryCount = 5;
+
+        var loadingBar = document.querySelector("#unity-loading-bar");
+        var loadingLogo = document.querySelector("#unity-logo");
+        var progressBarFull = document.querySelector("#unity-progress-bar-full");
+
+        // 初始化进度条方向（仅控制横竖，无旋转）
+        function initLoadingBar() {
+            if (isMobileBrowser) {
+                loadingBar.classList.add("mobile-progress");
+                loadingLogo.classList.add("mobile-progress");
+                console.log("📱 移动端/鸿蒙系统：进度条为竖版，Logo已正位");
+            } else {
+                loadingBar.classList.remove("mobile-progress");
+                console.log("💻 PC端：进度条为横版，Logo已正位");
+            }
+        }
+
+        function unityShowBanner(msg, type) {
+            const warningBanner = document.querySelector("#unity-warning");
+            function updateBannerVisibility() {
+                warningBanner.style.display = warningBanner.children.length ? 'block' : 'none';
+            }
+            var div = document.createElement('div');
+            div.innerHTML = msg;
+            warningBanner.appendChild(div);
+            if (type === 'error') {
+                div.style = 'background: red; padding: 10px; color: white; margin: 5px 0;';
+            } else if (type === 'warning') {
+                div.style = 'background: yellow; padding: 10px; color: black; margin: 5px 0;';
+                setTimeout(() => {
+                    warningBanner.removeChild(div);
+                    updateBannerVisibility();
+                }, 5000);
+            }
+            updateBannerVisibility();
+        }
+
+        function sendMobileStatusToUnity() {
+            if (!unityInstance) return;
+            if (sendRetryCount >= maxRetryCount) {
+                unityShowBanner("未找到LoginManager或ReceiveMobileStatus方法", "error");
+                return;
+            }
+            try {
+                unityInstance.SendMessage("LoginManager", "ReceiveMobileStatus", mobileStatusStr);
+                console.log("✅ 移动端状态发送成功");
+            } catch (e) {
+                sendRetryCount++;
+                console.error(`❌ 第${sendRetryCount}次发送失败：`, e.message);
+                setTimeout(sendMobileStatusToUnity, 1000);
+            }
+        }
+
+        function unityLoaded() {
+            document.querySelector("#loading-cover").style.display = "none";
+            sendMobileStatusToUnity();
+        }
+
+        var buildUrl = "Build";
+        var loaderUrl = buildUrl + "/FlashGame.loader.js";
+        var config = {
+            dataUrl: buildUrl + "/FlashGame.data.unityweb",
+            frameworkUrl: buildUrl + "/FlashGame.framework.js.unityweb",
+            <!-- #if USE_WASM -->
+            codeUrl: buildUrl + "/FlashGame.wasm.unityweb",
+            <!-- #endif -->
+            <!-- #if MEMORY_FILENAME-- >
+            memoryUrl: buildUrl + "/",
+            <!-- #endif -->
+            <!-- #if SYMBOLS_FILENAME-- >
+            symbolsUrl: buildUrl + "/",
+            <!-- #endif -->
+            streamingAssetsUrl: "StreamingAssets",
+            companyName: "NanJingYaoYu",
+            productName: "FlashGame",
+            productVersion: "3.0.0",
+            showBanner: unityShowBanner,
+            };
+
+        // 先初始化加载栏（Logo正位+进度条横竖）
+        initLoadingBar();
+
+        if (isMobileBrowser) {
+            var meta = document.createElement('meta');
+            meta.name = 'viewport';
+            meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no';
+            document.head.appendChild(meta);
+        }
+
+        var script = document.createElement("script");
+        script.src = loaderUrl;
+        script.onload = () => {
+            createUnityInstance(document.querySelector("#unity-canvas"), config, (progress) => {
+                if (isMobileBrowser) {
+                    // 移动端竖条：高度从0→100%（从下往上填充）
+                    progressBarFull.style.height = 100 * progress + "%";
+                } else {
+                    // PC端横条：宽度从0→100%（从左往右填充）
+                    progressBarFull.style.width = 100 * progress + "%";
+                }
+            }).then((instance) => {
+                unityInstance = instance;
+                unityLoaded();
+            }).catch((message) => {
+                unityShowBanner(message, 'error');
+                console.error("❌ Unity实例创建失败:", message);
+            });
+        };
+        document.body.appendChild(script);
+    </script>
+</body>
+</html>
